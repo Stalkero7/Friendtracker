@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SubTracker Pro</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { -webkit-tap-highlight-color: transparent; user-select: none; background-color: #020617; }
+        .month-chip { transition: all 0.2s; cursor: pointer; }
+        .month-chip.paid { background-color: #10b981; color: white; border-color: #059669; box-shadow: 0 4px 10px -4px #10b981; }
+        .month-chip.pending { background-color: #1e293b; color: #64748b; border-color: #334155; }
+        .view { display: none; }
+        .view.active { display: block; }
+        ::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="text-white min-h-screen font-sans">
+
+    <div id="view-dashboard" class="view active p-6">
+        <header class="max-w-6xl mx-auto flex flex-col sm:flex-row justify-between items-start sm:items-center mb-12 gap-6">
+            <div>
+                <h1 class="text-4xl font-black text-indigo-500 tracking-tighter">SUB_TRACKER</h1>
+                <div class="flex gap-4 mt-2">
+                    <button onclick="exportData()" class="text-[9px] text-slate-500 hover:text-indigo-400 font-black uppercase tracking-[0.2em] transition">↑ Exportar JSON</button>
+                    <button onclick="importData()" class="text-[9px] text-slate-500 hover:text-indigo-400 font-black uppercase tracking-[0.2em] transition">↓ Importar JSON</button>
+                </div>
+            </div>
+            <button onclick="showModal()" class="w-full sm:w-auto bg-indigo-600 hover:bg-indigo-500 px-8 py-4 rounded-2xl font-bold transition-all shadow-lg shadow-indigo-500/20 active:scale-95">
+                + Nueva Suscripción
+            </button>
+        </header>
+        <main id="sub-list" class="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"></main>
+    </div>
+
+    <div id="view-detail" class="view p-6">
+        <div class="max-w-6xl mx-auto">
+            <div class="flex justify-between items-center mb-10">
+                <button onclick="showView('dashboard')" class="bg-slate-900 hover:bg-slate-800 px-5 py-2.5 rounded-xl text-slate-300 transition flex items-center gap-2 border border-slate-800">
+                    <span>←</span> Dashboard
+                </button>
+                <div class="flex items-center gap-4 bg-slate-900 p-2 rounded-2xl border border-slate-800">
+                    <select id="year-selector" onchange="updateYear(this.value)" class="bg-transparent text-indigo-400 px-4 py-1 font-black outline-none">
+                        </select>
+                </div>
+            </div>
+            <div id="detail-content"></div>
+        </div>
+    </div>
+
+    <div id="modal" class="hidden fixed inset-0 bg-slate-950/95 backdrop-blur-md flex items-center justify-center p-4 z-50">
+        <div class="bg-slate-900 p-8 rounded-[2.5rem] w-full max-w-sm border border-slate-800">
+            <h2 class="text-2xl font-bold mb-6 text-center italic">Configurar Servicio</h2>
+            <div class="space-y-4">
+                <input type="text" id="sub-name" placeholder="Nombre (ej. Netflix)" class="w-full bg-slate-950 p-4 rounded-2xl outline-none border border-slate-800 focus:border-indigo-500">
+                <input type="number" id="sub-cost" placeholder="Costo Mensual Total" class="w-full bg-slate-950 p-4 rounded-2xl outline-none border border-slate-800 focus:border-indigo-500">
+                <button onclick="saveSubscription()" class="w-full bg-indigo-600 py-4 rounded-2xl font-bold shadow-xl">Guardar</button>
+                <button onclick="hideModal()" class="w-full text-slate-500 py-2 text-sm">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let subscriptions = JSON.parse(localStorage.getItem('subs_matrix_v7')) || [];
+        let currentSubIndex = null;
+        let selectedYear = 2026;
+        const shortMonths = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+
+        // Setup inicial
+        const yearSelect = document.getElementById('year-selector');
+        for(let y = 2024; y <= 2030; y++) {
+            let opt = document.createElement('option');
+            opt.value = y; opt.innerHTML = y;
+            if(y === selectedYear) opt.selected = true;
+            yearSelect.appendChild(opt);
+        }
+
+        function showView(viewName) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.getElementById(`view-${viewName}`).classList.add('active');
+            if(viewName === 'dashboard') renderDashboard();
+        }
+
+        function showModal() { document.getElementById('modal').classList.remove('hidden'); }
+        function hideModal() { document.getElementById('modal').classList.add('hidden'); }
+
+        function updateYear(year) {
+            selectedYear = parseInt(year);
+            showDetail(currentSubIndex);
+        }
+
+        function updateStorage() {
+            localStorage.setItem('subs_matrix_v7', JSON.stringify(subscriptions));
+        }
+
+        function saveSubscription() {
+            const name = document.getElementById('sub-name').value;
+            const cost = parseFloat(document.getElementById('sub-cost').value);
+            if (name && cost > 0) {
+                subscriptions.push({ name, cost, friends: [] });
+                updateStorage();
+                hideModal();
+                renderDashboard();
+            }
+        }
+
+        function addFriend(subIndex) {
+            const name = prompt("Nombre del integrante:");
+            if (name) {
+                subscriptions[subIndex].friends.push({ name, balance: 0, payments: {} });
+                updateStorage();
+                showDetail(subIndex);
+            }
+        }
+
+        function toggleMonth(subIndex, friendIndex, year, monthIndex) {
+            const friend = subscriptions[subIndex].friends[friendIndex];
+            const key = `${year}-${monthIndex}`;
+            friend.payments[key] = !friend.payments[key];
+            updateStorage();
+            showDetail(subIndex);
+        }
+
+        function addFunds(subIndex, friendIndex) {
+            const amount = parseFloat(prompt("Monto a cargar (positivo añadir, negativo retirar):"));
+            if (isNaN(amount)) return;
+
+            const sub = subscriptions[subIndex];
+            const friend = sub.friends[friendIndex];
+            const perPerson = sub.cost / (sub.friends.length + 1);
+            
+            friend.balance += amount;
+            if(friend.balance < 0) friend.balance = 0;
+
+            if (amount > 0) {
+                const currentY = new Date().getFullYear();
+                for (let y = currentY; y <= 2030; y++) {
+                    for (let m = 0; m < 12; m++) {
+                        const key = `${y}-${m}`;
+                        if (!friend.payments[key] && friend.balance >= perPerson) {
+                            friend.payments[key] = true;
+                            friend.balance -= perPerson;
+                        }
+                    }
+                }
+            }
+            updateStorage();
+            showDetail(subIndex);
+        }
+
+        function resetBalance(subIndex, friendIndex) {
+            if(confirm("¿Resetear saldo a favor a $0.00?")) {
+                subscriptions[subIndex].friends[friendIndex].balance = 0;
+                updateStorage();
+                showDetail(subIndex);
+            }
+        }
+
+        // --- BACKUP ---
+        function exportData() {
+            const dataStr = JSON.stringify(subscriptions);
+            const blob = new Blob([dataStr], {type: "application/json"});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `backup_subs_${new Date().toISOString().slice(0,10)}.json`;
+            link.click();
+        }
+
+        function importData() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = e => {
+                const reader = new FileReader();
+                reader.onload = event => {
+                    try {
+                        subscriptions = JSON.parse(event.target.result);
+                        updateStorage();
+                        renderDashboard();
+                        alert("Importación exitosa.");
+                    } catch(e) { alert("Archivo inválido."); }
+                };
+                reader.readAsText(e.target.files[0]);
+            };
+            input.click();
+        }
+
+        function renderDashboard() {
+            const container = document.getElementById('sub-list');
+            if (subscriptions.length === 0) {
+                container.innerHTML = `<div class="col-span-full text-center py-20 text-slate-700 font-mono italic">No hay servicios.</div>`;
+                return;
+            }
+            container.innerHTML = subscriptions.map((sub, index) => {
+                const perPerson = sub.cost / (sub.friends.length + 1);
+                return `
+                <div onclick="showDetail(${index})" class="bg-slate-900 p-8 rounded-[2rem] border border-slate-800 hover:border-indigo-500/50 cursor-pointer transition shadow-2xl group">
+                    <h3 class="text-2xl font-black mb-6 group-hover:text-indigo-400 transition">${sub.name}</h3>
+                    <div class="space-y-3 font-mono">
+                        <div class="flex justify-between text-[10px] text-slate-500 font-black"><span>TOTAL</span><span>$${sub.cost.toFixed(2)}</span></div>
+                        <div class="flex justify-between text-xl text-emerald-400 font-bold border-t border-slate-800 pt-3"><span>CUOTA</span><span>$${perPerson.toFixed(2)}</span></div>
+                    </div>
+                </div>
+            `}).join('');
+        }
+
+        function showDetail(index) {
+            currentSubIndex = index;
+            const sub = subscriptions[index];
+            const perPerson = sub.cost / (sub.friends.length + 1);
+
+            const content = `
+                <div class="bg-slate-900 p-10 rounded-[2.5rem] border border-slate-800 shadow-2xl mb-8">
+                    <h2 class="text-5xl font-black mb-6 tracking-tighter">${sub.name}</h2>
+                    <div class="flex gap-8 font-mono">
+                        <div><p class="text-[10px] text-slate-500 font-black uppercase">Costo Total</p><p class="text-2xl font-bold">$${sub.cost.toFixed(2)}</p></div>
+                        <div class="pl-8 border-l border-slate-800"><p class="text-[10px] text-emerald-500 font-black uppercase">Individual</p><p class="text-2xl font-bold text-emerald-400">$${perPerson.toFixed(2)}</p></div>
+                    </div>
+                </div>
+
+                <div class="space-y-6">
+                    ${sub.friends.map((f, fi) => `
+                        <div class="bg-slate-900/50 p-8 rounded-[2.5rem] border border-slate-800">
+                            <div class="flex flex-wrap justify-between items-center mb-6 gap-4">
+                                <div>
+                                    <h4 class="text-2xl font-bold text-white">${f.name}</h4>
+                                    <p class="text-xs text-emerald-500 font-bold mt-1">Saldo a favor: $${(f.balance || 0).toFixed(2)}</p>
+                                </div>
+                                <div class="flex gap-2">
+                                    <button onclick="addFunds(${index}, ${fi})" class="bg-indigo-600 px-4 py-2 rounded-xl text-[10px] font-black uppercase">Cargar</button>
+                                    <button onclick="resetBalance(${index}, ${fi})" class="bg-slate-800 text-slate-500 px-4 py-2 rounded-xl text-[10px] font-black uppercase">Reset</button>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-4 md:grid-cols-6 lg:grid-cols-12 gap-2">
+                                ${shortMonths.map((m, mi) => {
+                                    const isPaid = f.payments[`${selectedYear}-${mi}`];
+                                    return `<div onclick="toggleMonth(${index}, ${fi}, ${selectedYear}, ${mi})" class="month-chip h-14 flex flex-col items-center justify-center rounded-xl border-2 text-[10px] font-black ${isPaid ? 'paid' : 'pending'}">${m}<span>${isPaid ? '✓' : ''}</span></div>`;
+                                }).join('')}
+                            </div>
+                        </div>
+                    `).join('')}
+                    <button onclick="addFriend(${index})" class="w-full p-6 border-2 border-dashed border-slate-800 rounded-[2rem] text-slate-500 font-black hover:text-indigo-500 hover:border-indigo-500 transition">+ AÑADIR INTEGRANTE</button>
+                </div>
+
+                <div class="mt-20 py-10 flex justify-center">
+                    <button onclick="deleteSub(${index})" class="text-slate-800 hover:text-red-900 text-[10px] font-black uppercase tracking-[0.5em] transition">Eliminar Suscripción</button>
+                </div>
+            `;
+            document.getElementById('detail-content').innerHTML = content;
+            showView('detail');
+        }
+
+        function deleteSub(index) {
+            if(confirm("¿Eliminar?")) { subscriptions.splice(index, 1); updateStorage(); showView('dashboard'); }
+        }
+
+        renderDashboard();
+
+        // Service Worker simple
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>
